@@ -1,106 +1,85 @@
 ﻿#Move files into a folder of when the photo was taken
-Function Organize-Photos 
-{ 
- Param([string[]]$folder) 
- foreach($sFolder in $folder) 
-  { 
-   $a = 0 
-   $objShell = New-Object -ComObject Shell.Application 
-   $objFolder = $objShell.namespace($sFolder) 
- 
-   foreach ($File in $objFolder.items()) 
-    {  
-     $FileMetaData = New-Object PSOBJECT 
-      for ($a ; $a  -le 266; $a++) 
-       {  
-         if($objFolder.getDetailsOf($File, $a)) 
-           { 
-             $hash += @{$($objFolder.getDetailsOf($objFolder.items, $a))  = 
-                  $($objFolder.getDetailsOf($File, $a)) 
-                  } 
-            $FileMetaData | Add-Member $hash 
-            
-            if(($objFolder.getDetailsOf($objFolder.items, $a).ToString() -eq "Date taken") -or ($objFolder.getDetailsOf($objFolder.items, $a).ToString() -eq "Media created")){
-                
-                #figure out new folder name
-                $sDateTaken = $objFolder.getDetailsOf($File, $a).ToString()
-                $aDateTaken = $sDateTaken.split(" ")
-                $aMonthDayYear = $aDateTaken[0].split(‘/’)
-                $sNewFolderName = $aMonthDayYear[2] + "-" + ($aMonthDayYear[0].Trim() -replace '[^a-zA-Z0-9]', '').PadLeft(2,'0') + "-" + ($aMonthDayYear[1].Trim() -replace '[^a-zA-Z0-9]', '').PadLeft(2,'0')
-                $des_path = $sFolder + $sNewFolderName
-                
+Function Organize-Photos { 
+  Param(
+    [Parameter(Mandatory = $true)][string]$folder, 
+    [string]$dirfilter
+  )
 
-                Move-File( $File, $des_path)
-                
-            }
-            $hash.clear()
+
+  #loop through folders
+  foreach ($sFolder in $folder) {
+
+    #make dir path with filter
+    $dirWithFilter = $sFolder + $dirfilter
+    Write-Output "Reading $dirWithFilter"
+   
+    #loop through files in folder
+    foreach ($File in Get-ChildItem -Path $dirWithFilter -Exclude "*.json*" -File) { 
+ 
+      Write-Output($File.name)
+      $data = & ./exiftool.exe $File.FullName -j -q -q
+      #Write-Output($data)
+      
+      $obj = $data | ConvertFrom-Json
+      #Write-Output($obj.DateTimeOriginal)
+      #Write-Output($obj.CreateDate)
+      
+      $sDateTaken = ""
+      if ($obj.CreateDate) { $sDateTaken = $obj.CreateDate }
+      if ($obj.DateTimeOriginal) { $sDateTaken = $obj.DateTimeOriginal }
+      
+      if ($sDateTaken -ne "") {
+        #figure out new folder name
+        $aDateTaken = $sDateTaken.split(" ")
+        $sNewFolderName = $aDateTaken[0] -replace ":","-"
+        #Write-Output("From Metadata:" + $sNewFolderName)
+      }
+
+      #read google takeout json file
+      if ($sDateTaken -eq "") {
+        $jsonFile = $File.FullName + ".json"
+        #Write-Output $jsonFile
+        if (Test-Path $jsonFile) {
+          $obj = (Get-Content $jsonFile | Out-String | ConvertFrom-Json)
+          $dCreatedDate = (Get-Date 01.01.1970) + ([System.TimeSpan]::fromseconds($obj.photoTakenTime.timestamp))
+
+          #write metadata
+          & ./exiftool "-DateTimeOriginal=$(Get-Date $dCreatedDate -format "yyyy:MM:dd") 00:00:0" $File.FullName -q
+          $sNewFolderName = (Get-Date $dCreatedDate -format "yyyy-MM-dd")
+          #Write-Output("From JSON:" + $sNewFolderName)
+        }
+      }
+      
+
+      $des_path = $sFolder + $sNewFolderName
+      #Write-Output($des_path)
+      Move-File $File.FullName $des_path
             
-           } #end if            
-       } #end for  
-     $a=0 
-     #$FileMetaData 
     } #end foreach $file 
   } #end foreach $sfolder 
 } #end Get-FileMetaData
 
-Function Move-File
-{
-  Param([string[]]$file) 
-  Param([string[]]$des_path) 
+#moves file into directory, creates if doesn't exist
+Function Move-File {
+  Param(
+    [Parameter(Mandatory = $true)][string] $file,
+    [Parameter(Mandatory = $true)][string] $des_path
+  ) 
   #check if dest dir exists
-  if (test-path $des_path){ 
-    move-item $File.Path $des_path 
-    } else {
-    new-item -ItemType directory -Path $des_path #create directory
-    move-item $File.Path $des_path 
-    }
-    Write-Output("Moved " + $File.Path)
-}
-
-#read google takeout json files to figure out created date
-Function Cleanup-Photos
-{
-    Param([string[]]$folder) 
-    foreach($sFolder in $folder) 
-  {
-    #$objShell = New-Object -ComObject Shell.Application 
-    #$objFolder = $objShell.namespace($sFolder) 
-
-    #-Recurse
-
-  #find files in directory
-   foreach ($File in Get-ChildItem -Path $sFolder -Exclude "*.json*" -File) 
-    {
-      Write-Output($File.Name)
-      
-      #check if json file exists
-      if([System.IO.File]::Exists($File.Path + $File.FullName+".json")){
-        $obj = Get-Content ($File.Path + $File.FullName+".json") | ConvertFrom-Json
-        
-        if($obj.creationTime){
-          
-          $dCreatedDate = (Get-Date 01.01.1970)+([System.TimeSpan]::fromseconds($obj.creationTime.timestamp))
-          #Write-Output(Get-Date $dCreatedDate -format "yyyy-MM-dd")
-          $des_path = $sFolder + (Get-Date $dCreatedDate -format "yyyy-MM-dd")
-          Move-File( $File, $des_path)
-          
-          #TODO: set date time in file
-
-        }
-      }
-    }
+  if (test-path $des_path) { 
+    move-item $File $des_path 
   }
-
-
+  else {
+    new-item -ItemType directory -Path $des_path.Trim() #create directory
+    move-item $File $des_path 
+  }
+  Write-Output("Moved " + $File)
 }
 
 
-$directory = "C:\Users\marty\OneDrive\Downloads\Takeout\Google Photos\Photos from 2009\*"
-$filter = "*"
+
+$directory = "C:\pictures\Takeout\Google Photos\Photos from 2009\"
+$dirfilter = "*"
 
 #first pass, move everything that has tags
-#Organize-Photos($directory)
-
-#cleanup
-Cleanup-Photos($directory)
-
+Organize-Photos $directory $dirfilter
