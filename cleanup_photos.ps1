@@ -1,29 +1,45 @@
-﻿#Move files into a folder of when the photo was taken
+﻿#Variables
+param (
+  [Parameter(Mandatory = $true)]$directory, 
+  $dirfilter = "*",
+  $dryrun = 0,
+  $doit="NO")
+
+#validate with user that they want to continue
+Write-Output("Reading directory $directory with a filter of $dirfilter")
+$doit = read-host -Prompt "Continue? type YES"
+if($doit -ne "YES"){exit}
+
+
+#Main program function
 Function Organize-Photos { 
   Param(
-    [Parameter(Mandatory = $true)][string]$folder, 
+    [Parameter(Mandatory = $true)][string]$basedirectory, 
     [string]$dirfilter
   )
 
+  $folders = Get-ChildItem -Path $basedirectory -Directory | Foreach-Object {$_.Name}
+  Write-Output "Reading $folders"
 
-  #loop through folders
-  foreach ($sFolder in $folder) {
+  #loop through sub folders
+  foreach ($sFolder in $folders) {
 
     #make dir path with filter
-    $dirWithFilter = $sFolder + $dirfilter
+    $sFolderFullPath = $basedirectory + $sFolder + "\"
+    $dirWithFilter = $sFolderFullPath + $dirfilter
     Write-Output "Reading $dirWithFilter"
+    #exit
    
     #loop through files in folder
     foreach ($File in Get-ChildItem -Path $dirWithFilter -Exclude "*.json*" -File) { 
  
-      Write-Output($File.name)
-      $data = & ./exiftool.exe $File.FullName -j -q -q
-      #Write-Output($data)
-      
+      Write-Output($File.FullName)
+
+      #get metadata from file using exiftool
+      $data = & ./exiftool.exe $File.FullName -j -q -q -overwrite_original
       $obj = $data | ConvertFrom-Json
-      #Write-Output($obj.DateTimeOriginal)
-      #Write-Output($obj.CreateDate)
-      
+
+      #get date from exif output
       $sDateTaken = ""
       if ($obj.CreateDate) { $sDateTaken = $obj.CreateDate }
       if ($obj.DateTimeOriginal) { $sDateTaken = $obj.DateTimeOriginal }
@@ -35,34 +51,43 @@ Function Organize-Photos {
         #Write-Output("From Metadata:" + $sNewFolderName)
       }
 
-      #read google takeout json file
+      #read google takeout json file if no date in meta data
       if ($sDateTaken -eq "") {
-        $jsonFile = $File.FullName + ".json"
-        #Write-Output $jsonFile
+        $jsonFile = $File.FullName + ".json" -replace "_Original",""
+        
+        Write-Output "Attemptimg to read " $jsonFile
         if (Test-Path $jsonFile) {
           $obj = (Get-Content $jsonFile | Out-String | ConvertFrom-Json)
           $dCreatedDate = (Get-Date 01.01.1970) + ([System.TimeSpan]::fromseconds($obj.photoTakenTime.timestamp))
 
           #write metadata
           & ./exiftool "-DateTimeOriginal=$(Get-Date $dCreatedDate -format "yyyy:MM:dd") 00:00:0" $File.FullName -q
+          Write-Output("Writing " + $dCreatedDate + " to file")
           $sNewFolderName = (Get-Date $dCreatedDate -format "yyyy-MM-dd")
-          #Write-Output("From JSON:" + $sNewFolderName)
+          
+        }else{
+          Write-Output("No JSON file")
         }
       }
       
 
-      $des_path = $sFolder + $sNewFolderName
+      $des_path = $sFolderFullPath + $sNewFolderName
       #Write-Output($des_path)
-      Move-File $File.FullName $des_path
+      if (!$dryrun) {
+        Move-File $File.FullName $des_path
+      }else{
+        Write-Output("Dryrun, not moved")
+      }
+      #exit
             
-    } #end foreach $file 
-  } #end foreach $sfolder 
-} #end Get-FileMetaData
+    }
+  }
+}
 
 #moves file into directory, creates if doesn't exist
 Function Move-File {
   Param(
-    [Parameter(Mandatory = $true)][string] $file,
+    [Parameter(Mandatory = $true)][string] $File,
     [Parameter(Mandatory = $true)][string] $des_path
   ) 
   #check if dest dir exists
@@ -73,13 +98,9 @@ Function Move-File {
     new-item -ItemType directory -Path $des_path.Trim() #create directory
     move-item $File $des_path 
   }
-  Write-Output("Moved " + $File)
+  Write-Output("Moved " + $File + " to " + $des_path)
 }
 
 
-
-$directory = "C:\pictures\Takeout\Google Photos\Photos from 2009\"
-$dirfilter = "*"
-
-#first pass, move everything that has tags
+#run the program
 Organize-Photos $directory $dirfilter
