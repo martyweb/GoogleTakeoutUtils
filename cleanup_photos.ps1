@@ -3,7 +3,8 @@ param (
   [Parameter(Mandatory = $true)]$directory, 
   $dirfilter = "*",
   $dryrun = 0,
-  $doit="NO")
+  $doit="NO",
+  $recurisve=0)
 
 #validate with user that they want to continue
 Write-Output("Reading directory $directory with a filter of $dirfilter")
@@ -17,18 +18,23 @@ Function Organize-Photos {
     [Parameter(Mandatory = $true)][string]$basedirectory, 
     [string]$dirfilter
   )
-
-  $folders = Get-ChildItem -Path $basedirectory -Directory | Foreach-Object {$_.Name}
+  
+  if($recurisve){
+    Write-Output "Recursive"
+    $folders = Get-ChildItem -Path $basedirectory -Directory
+  }else{
+    Write-Output "Not recursive"
+    $folders = Get-Item -Path $basedirectory
+  }
   Write-Output "Reading $folders"
-
+  
   #loop through sub folders
   foreach ($sFolder in $folders) {
 
     #make dir path with filter
-    $sFolderFullPath = $basedirectory + $sFolder + "\"
+    $sFolderFullPath = $sFolder.FullName + "\"
     $dirWithFilter = $sFolderFullPath + $dirfilter
     Write-Output "Reading $dirWithFilter"
-    #exit
    
     #loop through files in folder
     foreach ($File in Get-ChildItem -Path $dirWithFilter -Exclude "*.json*" -File) { 
@@ -38,18 +44,31 @@ Function Organize-Photos {
       #get metadata from file using exiftool
       $data = & ./exiftool.exe $File.FullName -j -q -q -overwrite_original
       $obj = $data | ConvertFrom-Json
+      #Write-Output($obj)
 
       #get date from exif output
       $sDateTaken = ""
-      if ($obj.CreateDate) { $sDateTaken = $obj.CreateDate }
-      if ($obj.DateTimeOriginal) { $sDateTaken = $obj.DateTimeOriginal }
-      
-      if ($sDateTaken -ne "") {
-        #figure out new folder name
+      if ($obj.CreateDate) { 
+        $sDateTaken = $obj.CreateDate
+        $aDateTaken = $sDateTaken.split(" ")
+        $sNewFolderNameCreateDate = $aDateTaken[0] -replace ":","-" 
+      }
+      if ($obj.DateTimeOriginal) { 
+        $sDateTaken = $obj.DateTimeOriginal
         $aDateTaken = $sDateTaken.split(" ")
         $sNewFolderName = $aDateTaken[0] -replace ":","-"
-        #Write-Output("From Metadata:" + $sNewFolderName)
       }
+      if([string]$sNewFolderName -isnot [DateTime]){
+        if([string]$sNewFolderNameCreateDate -as [DateTime]){
+          $sNewFolderName=$sNewFolderNameCreateDate
+        }else {
+          $sNewFolderName=""
+        }
+      }
+      
+      #Write-Output($sNewFolderName)
+      #exit
+
 
       #read google takeout json file if no date in meta data
       if ($sDateTaken -eq "") {
@@ -71,14 +90,21 @@ Function Organize-Photos {
       }
       
 
-      $des_path = $sFolderFullPath + $sNewFolderName
-      #Write-Output($des_path)
-      if (!$dryrun) {
-        Move-File $File.FullName $des_path
+      if($sNewFolderName -eq ""){
+        Write-Output("No new folder, not moved")
       }else{
-        Write-Output("Dryrun, not moved")
+        $des_path = $sFolderFullPath + $sNewFolderName
+        #Write-Output($des_path)
+        #exit
+        if (!$dryrun) {
+          Move-File $File.FullName $des_path
+        }else{
+          Write-Output("Dryrun, not moved to " + $des_path)
+        }
+        #exit
+    
       }
-      #exit
+      
             
     }
   }
