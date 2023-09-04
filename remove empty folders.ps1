@@ -3,7 +3,7 @@ param (
   $filefilter = "*_conflict*",
   $dryrun = 0)
 
-$directory="P:\Karen\"
+$directory="\\data.martyweb.com\onedrive_karen\Pictures"
 
 Write-Output("Reading directory $directory")
 

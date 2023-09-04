@@ -3,14 +3,10 @@ param (
   [Parameter(Mandatory = $true)]$directory, 
   $dirfilter = "*",
   $dryrun = 0,
-  $doit="NO",
   $recurisve=0)
 
 #validate with user that they want to continue
 Write-Output("Reading directory $directory with a filter of $dirfilter")
-$doit = read-host -Prompt "Continue? type YES"
-if($doit -ne "YES"){exit}
-
 
 #Main program function
 Function Organize-Photos { 
@@ -68,7 +64,6 @@ Function Organize-Photos {
       
       #Write-Output($sNewFolderName)
       #exit
-
 
       #read google takeout json file if no date in meta data
       if ($sDateTaken -eq "") {
